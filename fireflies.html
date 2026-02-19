@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fireflies</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; overflow: hidden; width: 100vw; height: 100vh; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+let mouse = { x: W / 2, y: H / 2 };
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+// ── Sky gradient ──────────────────────────────────────────────────────────────
+function drawSky() {
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0,    '#0b0c1a');
+    grad.addColorStop(0.45, '#101828');
+    grad.addColorStop(0.75, '#162310');
+    grad.addColorStop(1,    '#0a1208');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+}
+
+// ── Stars ─────────────────────────────────────────────────────────────────────
+const stars = Array.from({ length: 160 }, () => ({
+    x: Math.random(),
+    y: Math.random() * 0.55,
+    r: Math.random() * 1.2 + 0.3,
+    flicker: Math.random() * Math.PI * 2,
+    speed: Math.random() * 0.012 + 0.004,
+}));
+
+function drawStars(t) {
+    stars.forEach(s => {
+        const alpha = 0.5 + 0.5 * Math.sin(s.flicker + t * s.speed);
+        ctx.beginPath();
+        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(220,230,255,${alpha * 0.8})`;
+        ctx.fill();
+    });
+}
+
+// ── Moon ──────────────────────────────────────────────────────────────────────
+function drawMoon() {
+    const mx = W * 0.78, my = H * 0.13, mr = 38;
+    const glow = ctx.createRadialGradient(mx, my, mr * 0.5, mx, my, mr * 3);
+    glow.addColorStop(0, 'rgba(220,235,200,0.18)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(mx, my, mr * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(mx, my, mr, 0, Math.PI * 2);
+    ctx.fillStyle = '#d8e8c8';
+    ctx.fill();
+
+    // soft crescent shadow
+    ctx.beginPath();
+    ctx.arc(mx + 10, my - 6, mr * 0.88, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(16, 24, 40, 0.55)';
+    ctx.fill();
+}
+
+// ── Trees ─────────────────────────────────────────────────────────────────────
+// Each tree: { x, baseY, scale, layer, sway, swayOffset }
+function buildForest() {
+    const trees = [];
+
+    // Background layer — pale, many
+    for (let i = 0; i < 22; i++) {
+        trees.push({
+            x: Math.random() * W,
+            baseY: H * (0.52 + Math.random() * 0.06),
+            scale: 0.55 + Math.random() * 0.3,
+            layer: 0,
+            sway: 0.0012 + Math.random() * 0.001,
+            swayOffset: Math.random() * Math.PI * 2,
+        });
+    }
+    // Mid layer
+    for (let i = 0; i < 16; i++) {
+        trees.push({
+            x: Math.random() * W,
+            baseY: H * (0.60 + Math.random() * 0.05),
+            scale: 0.75 + Math.random() * 0.35,
+            layer: 1,
+            sway: 0.001 + Math.random() * 0.0008,
+            swayOffset: Math.random() * Math.PI * 2,
+        });
+    }
+    // Foreground layer
+    for (let i = 0; i < 10; i++) {
+        trees.push({
+            x: Math.random() * W,
+            baseY: H * (0.72 + Math.random() * 0.1),
+            scale: 1.1 + Math.random() * 0.5,
+            layer: 2,
+            sway: 0.0008 + Math.random() * 0.0006,
+            swayOffset: Math.random() * Math.PI * 2,
+        });
+    }
+    return trees;
+}
+let forest = buildForest();
+window.addEventListener('resize', () => { forest = buildForest(); });
+
+const layerColors = [
+    ['#1a2e14', '#0f1c0a'],
+    ['#122010', '#0a1508'],
+    ['#0c1a09', '#060e04'],
+];
+
+function drawTree(tree, t) {
+    const sway = Math.sin(t * tree.sway + tree.swayOffset) * 3 * tree.scale;
+    const [fill1, fill2] = layerColors[tree.layer];
+
+    ctx.save();
+    ctx.translate(tree.x + sway, tree.baseY);
+
+    const h = 200 * tree.scale;
+    const w = 54 * tree.scale;
+
+    // Trunk
+    ctx.fillStyle = fill2;
+    ctx.fillRect(-5 * tree.scale, 0, 10 * tree.scale, 30 * tree.scale);
+
+    // Draw stacked triangles (pine shape)
+    const levels = 5;
+    for (let i = 0; i < levels; i++) {
+        const frac = i / levels;
+        const layerH = h * (0.35 + frac * 0.18);
+        const layerW = w * (1 - frac * 0.45);
+        const yOff = -h * frac * 0.72;
+
+        ctx.beginPath();
+        ctx.moveTo(0, yOff - layerH);
+        ctx.lineTo(-layerW, yOff);
+        ctx.lineTo(layerW, yOff);
+        ctx.closePath();
+        ctx.fillStyle = fill1;
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawForest(t) {
+    [0, 1, 2].forEach(layer => {
+        forest
+            .filter(tr => tr.layer === layer)
+            .sort((a, b) => a.x - b.x)
+            .forEach(tr => drawTree(tr, t));
+    });
+}
+
+// ── Ground fog ────────────────────────────────────────────────────────────────
+function drawFog() {
+    const grad = ctx.createLinearGradient(0, H * 0.7, 0, H);
+    grad.addColorStop(0, 'rgba(30,55,25,0)');
+    grad.addColorStop(0.4, 'rgba(20,40,18,0.25)');
+    grad.addColorStop(1, 'rgba(10,20,8,0.55)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, H * 0.7, W, H * 0.3);
+}
+
+// ── Fireflies ─────────────────────────────────────────────────────────────────
+class Firefly {
+    constructor() { this.reset(true); }
+    reset(initial = false) {
+        this.x = Math.random() * W;
+        this.y = H * (0.35 + Math.random() * 0.5);
+        this.targetX = this.x + (Math.random() - 0.5) * 120;
+        this.targetY = this.y + (Math.random() - 0.5) * 80;
+        this.speed = 0.003 + Math.random() * 0.004;
+        this.pulseOffset = Math.random() * Math.PI * 2;
+        this.pulseSpeed = 0.8 + Math.random() * 1.2;
+        this.size = 1.8 + Math.random() * 1.8;
+        this.hue = 75 + Math.random() * 30;   // warm yellow-green
+        this.restTimer = 0;
+        this.restDuration = 60 + Math.random() * 120;
+        this.resting = initial ? false : Math.random() > 0.5;
+        this.opacity = initial ? 0 : 1;
+        this.fadingIn = true;
+    }
+    update(t) {
+        // Drift toward target
+        if (!this.resting) {
+            this.x += (this.targetX - this.x) * this.speed;
+            this.y += (this.targetY - this.y) * this.speed;
+
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            if (Math.sqrt(dx*dx + dy*dy) < 4) {
+                this.resting = true;
+                this.restTimer = 0;
+            }
+        } else {
+            this.restTimer++;
+            if (this.restTimer > this.restDuration) {
+                this.resting = false;
+                this.targetX = Math.max(20, Math.min(W-20, this.x + (Math.random()-0.5)*200));
+                this.targetY = Math.max(H*0.3, Math.min(H*0.85, this.y + (Math.random()-0.5)*120));
+            }
+        }
+
+        // Mouse proximity — gently drift away
+        const mx = this.x - mouse.x;
+        const my = this.y - mouse.y;
+        const md = Math.sqrt(mx*mx + my*my);
+        if (md < 90) {
+            const push = (90 - md) / 90 * 1.2;
+            this.x += (mx / md) * push;
+            this.y += (my / md) * push;
+        }
+
+        // Fade in
+        if (this.fadingIn) {
+            this.opacity = Math.min(1, this.opacity + 0.008);
+            if (this.opacity >= 1) this.fadingIn = false;
+        }
+
+        // Keep on screen
+        if (this.x < 0 || this.x > W || this.y < H*0.25 || this.y > H*0.92) this.reset();
+    }
+    draw(t) {
+        const pulse = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.001 * this.pulseSpeed + this.pulseOffset));
+        const alpha = pulse * this.opacity;
+        const r = this.size * (0.8 + 0.4 * pulse);
+
+        // Outer glow
+        const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r * 6);
+        g.addColorStop(0, `hsla(${this.hue},90%,75%,${alpha * 0.4})`);
+        g.addColorStop(1, `hsla(${this.hue},90%,75%,0)`);
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r * 6, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+
+        // Core
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${this.hue},95%,92%,${alpha})`;
+        ctx.fill();
+    }
+}
+
+const fireflies = Array.from({ length: 55 }, (_, i) => {
+    const f = new Firefly();
+    f.opacity = 0;
+    f.fadingIn = true;
+    // stagger fade-in
+    setTimeout(() => {}, i * 80);
+    return f;
+});
+
+// ── Falling lights ────────────────────────────────────────────────────────────
+class FallingLight {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.landY = H * (0.62 + Math.random() * 0.14);
+        this.vy = 1.2 + Math.random() * 0.6;
+        this.trail = [];
+        this.alpha = 1;
+        this.landed = false;
+        this.burstR = 0;
+        this.burstAlpha = 0;
+        this.done = false;
+    }
+    update() {
+        if (!this.done && !this.landed) {
+            this.trail.push({ x: this.x, y: this.y });
+            if (this.trail.length > 90) this.trail.shift();
+            this.y += this.vy;
+            this.vy += 0.012;
+            this.x += Math.sin(this.y * 0.018) * 0.4;
+            if (this.y >= this.landY) {
+                this.landed = true;
+                this.burstAlpha = 1;
+                this.burstR = 10;
+            }
+        } else if (this.landed) {
+            this.burstR = Math.min(this.burstR + 4, 160);
+            this.burstAlpha -= 0.018;
+            this.alpha -= 0.022;
+            if (this.alpha <= 0) this.done = true;
+        }
+    }
+    drawIllumination() {
+        if (this.done) return;
+        const reach = 220 + (this.y - this.trail[0]?.y || 0) * 0.2;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, reach);
+        g.addColorStop(0,   `rgba(255,230,120,${0.13 * this.alpha})`);
+        g.addColorStop(0.35,`rgba(255,190, 60,${0.07 * this.alpha})`);
+        g.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, reach, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+    drawStreak() {
+        if (this.done) return;
+        ctx.save();
+        // Comet tail
+        for (let i = 0; i < this.trail.length; i++) {
+            const frac = i / this.trail.length;
+            const p = this.trail[i];
+            const r = frac * 3.5;
+            const a = frac * 0.85 * this.alpha;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,245,180,${a})`;
+            ctx.fill();
+        }
+        if (!this.landed) {
+            // Bright core
+            ctx.shadowColor = '#fff8c0';
+            ctx.shadowBlur = 24;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 4.5, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,255,240,${this.alpha})`;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+        // Ground burst
+        if (this.landed && this.burstAlpha > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            const bg = ctx.createRadialGradient(this.x, this.landY, 0, this.x, this.landY, this.burstR);
+            bg.addColorStop(0,   `rgba(255,250,200,${this.burstAlpha * 0.7})`);
+            bg.addColorStop(0.4, `rgba(255,210, 80,${this.burstAlpha * 0.35})`);
+            bg.addColorStop(1,   'rgba(0,0,0,0)');
+            ctx.fillStyle = bg;
+            ctx.beginPath();
+            ctx.arc(this.x, this.landY, this.burstR, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+const fallingLights = [];
+canvas.addEventListener('click', e => {
+    fallingLights.push(new FallingLight(e.clientX, e.clientY));
+});
+
+// ── Subtle text ───────────────────────────────────────────────────────────────
+let textAlpha = 0;
+setTimeout(() => {
+    const fade = setInterval(() => {
+        textAlpha = Math.min(1, textAlpha + 0.005);
+        if (textAlpha >= 1) clearInterval(fade);
+    }, 30);
+}, 2000);
+
+function drawText(t) {
+    const pulse = 0.7 + 0.3 * Math.sin(t * 0.0005);
+    ctx.save();
+    ctx.globalAlpha = textAlpha * pulse * 0.55;
+    ctx.fillStyle = '#c8ddb0';
+    ctx.font = '500 1rem "Inter", system-ui, sans-serif';
+    ctx.letterSpacing = '0.25em';
+    ctx.textAlign = 'center';
+    ctx.fillText('still your mind', W / 2, H * 0.88);
+    ctx.restore();
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+let t = 0;
+function loop() {
+    t++;
+    drawSky();
+    drawStars(t);
+    drawMoon();
+    drawForest(t);
+    // illumination washes over trees
+    fallingLights.forEach(fl => fl.drawIllumination());
+    drawFog();
+    // streak + ground burst on top
+    fallingLights.forEach(fl => fl.drawStreak());
+    fallingLights.forEach(fl => fl.update());
+    fallingLights.splice(0, fallingLights.length, ...fallingLights.filter(fl => !fl.done));
+    fireflies.forEach(f => { f.update(t); f.draw(t); });
+    drawText(t);
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
