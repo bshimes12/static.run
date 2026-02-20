@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kaleidoscope</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #06000f; overflow: hidden; cursor: crosshair; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, cx, cy, R;
+
+function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cx = W / 2; cy = H / 2;
+    R = Math.sqrt(cx*cx + cy*cy) * 1.1;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State ──────────────────────────────────────────────────────────────────
+const N = 8;
+const SEG = Math.PI * 2 / N;
+let t = 0;
+let speed = 1;
+let hueShift = 0;
+const ripples = [];
+
+// ── Ripples ────────────────────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+    for (let i = 0; i < 5; i++) {
+        ripples.push({
+            x: e.clientX, y: e.clientY,
+            r: i * 18,
+            maxR: R * (1.2 + i * 0.15),
+            speed: 4 + i * 1.2,
+            alpha: 1 - i * 0.12,
+            hue: (hueShift + i * 35) % 360,
+        });
+    }
+    speed = Math.min(speed + 2.5, 8);
+    hueShift = (hueShift + 55) % 360;
+});
+
+// ── Arm pattern (drawn in wedge 0→SEG, clipped externally) ────────────────
+function drawArm(pulse) {
+    const arms = [
+        { r1: 60,  r2: 110, s1: 0.00055, s2: 0.00082, phase: 0 },
+        { r1: 110, r2: 180, s1: 0.00038, s2: 0.00060, phase: 1.1 },
+        { r1: 175, r2: 270, s1: 0.00028, s2: 0.00044, phase: 2.3 },
+        { r1: 260, r2: 370, s1: 0.00018, s2: 0.00030, phase: 3.7 },
+        { r1: 350, r2: 480, s1: 0.00012, s2: 0.00020, phase: 0.6 },
+    ];
+
+    arms.forEach((arm, i) => {
+        const a1 = t * arm.s1 * speed + arm.phase;
+        const a2 = t * arm.s2 * speed + arm.phase + 0.9;
+        const a3 = t * arm.s1 * speed * 0.6 + arm.phase + 1.8;
+
+        const rx1 = arm.r1 + 18 * Math.sin(t * 0.0007 * (i+1));
+        const rx2 = arm.r2 + 22 * Math.cos(t * 0.0005 * (i+1));
+
+        const p1 = { x: Math.cos(a1) * rx1, y: Math.sin(a1) * rx1 };
+        const p2 = { x: Math.cos(a2) * rx2, y: Math.sin(a2) * rx2 };
+        const cp = { x: Math.cos(a3) * (rx1 + rx2) * 0.5, y: Math.sin(a3) * (rx1 + rx2) * 0.5 };
+
+        const hue = (hueShift + t * 0.06 * speed + i * 42) % 360;
+        const lum = 58 + 18 * Math.sin(t * 0.001 + i);
+        const alpha = 0.75 + 0.25 * pulse;
+        const glow = 6 + pulse * 10;
+        const lw = 1.8 + pulse * 0.8;
+
+        ctx.save();
+        ctx.shadowColor = `hsl(${hue},100%,${lum}%)`;
+        ctx.shadowBlur = glow;
+        ctx.strokeStyle = `hsla(${hue},100%,${lum}%,${alpha})`;
+        ctx.lineWidth = lw;
+
+        // Main bezier curve
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+        ctx.stroke();
+
+        // Connector p1→p2
+        ctx.globalAlpha = 0.5 + 0.3 * pulse;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.strokeStyle = `hsla(${(hue+90)%360},100%,${lum}%,0.6)`;
+        ctx.lineWidth = lw * 0.6;
+        ctx.stroke();
+
+        // Glowing nodes
+        ctx.globalAlpha = 1;
+        [p1, p2].forEach((p, pi) => {
+            const nr = 3.5 + pulse * 2 + (pi === 0 ? 1 : 0);
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, nr * 3);
+            const nh = (hue + pi * 60) % 360;
+            g.addColorStop(0, `hsla(${nh},100%,95%,${alpha})`);
+            g.addColorStop(1, `hsla(${nh},100%,70%,0)`);
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, nr * 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowBlur = 10 + pulse * 8;
+            ctx.shadowColor = `hsl(${nh},100%,80%)`;
+            ctx.fillStyle = `hsla(${nh},100%,95%,${alpha})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, nr, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        ctx.restore();
+    });
+
+    // Inner geometric burst — triangles fanning from center
+    const triCount = 4;
+    for (let j = 0; j < triCount; j++) {
+        const angle = t * 0.0004 * speed * (j % 2 ? 1 : -1.2) + j * (SEG / triCount);
+        const dist = 35 + 25 * Math.sin(t * 0.0009 + j);
+        const hue = (hueShift + t * 0.05 * speed + j * 80) % 360;
+        const px = Math.cos(angle) * dist;
+        const py = Math.sin(angle) * dist;
+
+        ctx.save();
+        ctx.shadowColor = `hsl(${hue},100%,70%)`;
+        ctx.shadowBlur = 14 + pulse * 10;
+        ctx.fillStyle = `hsla(${hue},100%,70%,${0.5 + 0.3 * pulse})`;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(px + Math.cos(angle + 0.35) * 20, py + Math.sin(angle + 0.35) * 20);
+        ctx.lineTo(px + Math.cos(angle - 0.35) * 20, py + Math.sin(angle - 0.35) * 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// ── Kaleidoscope draw ──────────────────────────────────────────────────────
+function drawKaleidoscope(pulse) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    for (let i = 0; i < N; i++) {
+        ctx.save();
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, R, i * SEG - 0.002, (i + 1) * SEG + 0.002);
+        ctx.closePath();
+        ctx.clip();
+
+        ctx.rotate(i * SEG);
+        if (i % 2 === 1) {
+            ctx.rotate(SEG);
+            ctx.scale(1, -1);
+        }
+
+        drawArm(pulse);
+        ctx.restore();
+    }
+
+    // Center glow
+    const cgr = ctx.createRadialGradient(0, 0, 0, 0, 0, 55 + pulse * 30);
+    const ch = (hueShift + t * 0.1) % 360;
+    cgr.addColorStop(0, `hsla(${ch},100%,95%,${0.6 + pulse * 0.3})`);
+    cgr.addColorStop(0.4, `hsla(${(ch+40)%360},100%,70%,${0.2 + pulse * 0.2})`);
+    cgr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = cgr;
+    ctx.beginPath();
+    ctx.arc(0, 0, 55 + pulse * 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// ── Ripple draw ────────────────────────────────────────────────────────────
+function drawAndUpdateRipples() {
+    let totalPulse = 0;
+
+    for (let i = ripples.length - 1; i >= 0; i--) {
+        const rp = ripples[i];
+
+        // Pulse contribution when ring is near canvas center
+        const dx = cx - rp.x, dy = cy - rp.y;
+        const distToCenter = Math.sqrt(dx*dx + dy*dy);
+        const ringNearCenter = Math.max(0, 1 - Math.abs(rp.r - distToCenter) / 80);
+        totalPulse += ringNearCenter * rp.alpha;
+
+        // Draw ring
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(${rp.hue},100%,72%,${rp.alpha * 0.85})`;
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = `hsl(${rp.hue},100%,72%)`;
+        ctx.shadowBlur = 18;
+        ctx.stroke();
+
+        // Inner bright ring
+        if (rp.r > 8) {
+            ctx.beginPath();
+            ctx.arc(rp.x, rp.y, rp.r * 0.92, 0, Math.PI * 2);
+            ctx.strokeStyle = `hsla(${(rp.hue+30)%360},100%,90%,${rp.alpha * 0.4})`;
+            ctx.lineWidth = 1;
+            ctx.shadowBlur = 0;
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        rp.r += rp.speed;
+        rp.alpha -= 0.008;
+        if (rp.alpha <= 0 || rp.r > rp.maxR) ripples.splice(i, 1);
+    }
+
+    return Math.min(totalPulse, 2.5);
+}
+
+// ── Main loop ──────────────────────────────────────────────────────────────
+function loop() {
+    t++;
+
+    // Slow speed back to 1 over time
+    speed = Math.max(1, speed - 0.018);
+
+    // Trailing motion blur
+    ctx.fillStyle = 'rgba(6, 0, 15, 0.14)';
+    ctx.fillRect(0, 0, W, H);
+
+    const pulse = drawAndUpdateRipples();
+    drawKaleidoscope(pulse);
+
+    requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
