@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Kiss — after Klimt</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1a1510;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            cursor: crosshair;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+const sparks = [];
+const PI = Math.PI;
+const TAU = PI * 2;
+
+function resize() {
+    W = canvas.width = window.innerWidth * devicePixelRatio;
+    H = canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Gold palette
+const golds = [
+    [255, 215, 80],
+    [218, 175, 50],
+    [255, 200, 60],
+    [240, 190, 40],
+    [200, 160, 50],
+    [255, 230, 130],
+    [180, 140, 40],
+    [255, 245, 180],
+];
+
+const coppers = [
+    [180, 100, 60],
+    [200, 120, 70],
+    [160, 90, 50],
+];
+
+// Shape data — all coordinates normalized 0-1, drawn relative to canvas center
+// We'll build the scene programmatically
+
+function drawScene() {
+    const cx = W / 2;
+    const cy = H / 2;
+    const scale = Math.min(W, H);
+
+    // Deep olive/brown background gradient
+    const bgGrad = ctx.createRadialGradient(cx, cy * 0.85, scale * 0.05, cx, cy * 0.85, scale * 0.7);
+    bgGrad.addColorStop(0, '#3d3520');
+    bgGrad.addColorStop(0.5, '#2a2215');
+    bgGrad.addColorStop(1, '#1a1510');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Flowery meadow at the bottom
+    drawMeadow(cx, cy, scale);
+
+    // The couple — cliff/pedestal edge
+    drawCliffEdge(cx, cy, scale);
+
+    // The man's robe — rectangles and geometric pattern (Klimt style)
+    drawManRobe(cx, cy, scale);
+
+    // The woman's robe — spirals and circles (Klimt style)
+    drawWomanRobe(cx, cy, scale);
+
+    // Flesh tones — faces, hands, feet
+    drawFlesh(cx, cy, scale);
+
+    // Hair
+    drawHair(cx, cy, scale);
+
+    // Gold leaf overlay on robes
+    drawGoldLeaf(cx, cy, scale);
+
+    // Vine/ivy crown on the man
+    drawCrown(cx, cy, scale);
+}
+
+function drawMeadow(cx, cy, scale) {
+    const baseY = cy + scale * 0.28;
+    // Green-brown meadow
+    const meadowGrad = ctx.createLinearGradient(0, baseY, 0, H);
+    meadowGrad.addColorStop(0, '#4a5e30');
+    meadowGrad.addColorStop(0.3, '#3a4a25');
+    meadowGrad.addColorStop(1, '#1a1510');
+    ctx.fillStyle = meadowGrad;
+    ctx.fillRect(0, baseY, W, H - baseY);
+
+    // Small flowers scattered
+    const flowerColors = ['#e8a0c0', '#d4e040', '#f0d060', '#e06080', '#c080d0', '#80c0e0', '#f0a030'];
+    for (let i = 0; i < 120; i++) {
+        const fx = cx + (Math.random() - 0.5) * scale * 0.9;
+        const fy = baseY + Math.random() * scale * 0.25 + scale * 0.02;
+        const fr = scale * (0.004 + Math.random() * 0.008);
+        ctx.beginPath();
+        // Small 5-petal flowers
+        const color = flowerColors[Math.floor(Math.random() * flowerColors.length)];
+        for (let p = 0; p < 5; p++) {
+            const angle = (p / 5) * TAU - PI / 2;
+            const px = fx + Math.cos(angle) * fr;
+            const py = fy + Math.sin(angle) * fr * 0.7;
+            ctx.moveTo(px, py);
+            ctx.arc(px, py, fr * 0.45, 0, TAU);
+        }
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.5 + Math.random() * 0.4;
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawCliffEdge(cx, cy, scale) {
+    const baseY = cy + scale * 0.28;
+    ctx.beginPath();
+    ctx.moveTo(cx - scale * 0.25, baseY);
+    ctx.quadraticCurveTo(cx - scale * 0.18, baseY - scale * 0.02, cx - scale * 0.05, baseY + scale * 0.03);
+    ctx.quadraticCurveTo(cx + scale * 0.1, baseY + scale * 0.06, cx + scale * 0.2, baseY + scale * 0.01);
+    ctx.lineTo(cx + scale * 0.2, baseY + scale * 0.1);
+    ctx.lineTo(cx - scale * 0.25, baseY + scale * 0.1);
+    ctx.closePath();
+    ctx.fillStyle = '#3d3a20';
+    ctx.fill();
+}
+
+function robeShape(cx, cy, scale) {
+    // Returns a path for the combined robe/blanket silhouette
+    const p = new Path2D();
+    // Bell shape encompassing both figures kneeling
+    const topY = cy - scale * 0.35;
+    const botY = cy + scale * 0.3;
+    const midX = cx - scale * 0.02;
+
+    p.moveTo(midX - scale * 0.12, topY);
+    // Left shoulder curve
+    p.quadraticCurveTo(midX - scale * 0.22, topY + scale * 0.1, midX - scale * 0.2, topY + scale * 0.3);
+    // Left side flows down
+    p.quadraticCurveTo(midX - scale * 0.22, botY - scale * 0.05, midX - scale * 0.18, botY);
+    // Bottom curve
+    p.quadraticCurveTo(midX, botY + scale * 0.08, midX + scale * 0.18, botY - scale * 0.04);
+    // Right side up
+    p.quadraticCurveTo(midX + scale * 0.17, topY + scale * 0.25, midX + scale * 0.14, topY + scale * 0.08);
+    // Right shoulder
+    p.quadraticCurveTo(midX + scale * 0.1, topY - scale * 0.02, midX + scale * 0.02, topY - scale * 0.02);
+    // Top of head area
+    p.quadraticCurveTo(midX - scale * 0.04, topY - scale * 0.04, midX - scale * 0.12, topY);
+    p.closePath();
+    return p;
+}
+
+function drawManRobe(cx, cy, scale) {
+    const midX = cx - scale * 0.02;
+    const topY = cy - scale * 0.35;
+
+    ctx.save();
+    // Clip to left half of robe for man's pattern
+    const robe = robeShape(cx, cy, scale);
+    ctx.clip(robe);
+
+    // Base gold
+    const goldGrad = ctx.createLinearGradient(midX - scale * 0.2, topY, midX + scale * 0.05, topY + scale * 0.6);
+    goldGrad.addColorStop(0, '#c8a830');
+    goldGrad.addColorStop(0.3, '#dab840');
+    goldGrad.addColorStop(0.6, '#b89828');
+    goldGrad.addColorStop(1, '#a08020');
+    ctx.fillStyle = goldGrad;
+    ctx.fillRect(midX - scale * 0.25, topY - scale * 0.05, scale * 0.3, scale * 0.75);
+
+    // Klimt rectangles pattern (man's side)
+    const rectSize = scale * 0.025;
+    for (let ry = topY; ry < topY + scale * 0.65; ry += rectSize * 1.1) {
+        for (let rx = midX - scale * 0.22; rx < midX + scale * 0.02; rx += rectSize * 1.1) {
+            const pattern = Math.random();
+            ctx.globalAlpha = 0.6 + Math.random() * 0.3;
+            if (pattern < 0.3) {
+                // Black and white rectangles
+                ctx.fillStyle = Math.random() < 0.5 ? '#1a1a1a' : '#f5f0e0';
+                ctx.fillRect(rx, ry, rectSize * 0.8, rectSize * 0.8);
+            } else if (pattern < 0.5) {
+                // Spiral/target
+                ctx.fillStyle = '#2a2a20';
+                ctx.fillRect(rx, ry, rectSize * 0.8, rectSize * 0.8);
+                ctx.beginPath();
+                ctx.arc(rx + rectSize * 0.4, ry + rectSize * 0.4, rectSize * 0.25, 0, TAU);
+                ctx.fillStyle = '#f5e880';
+                ctx.fill();
+            } else {
+                // Gold variations
+                const g = golds[Math.floor(Math.random() * golds.length)];
+                ctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`;
+                ctx.fillRect(rx, ry, rectSize * 0.8, rectSize * 0.8);
+            }
+        }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+}
+
+function drawWomanRobe(cx, cy, scale) {
+    const midX = cx - scale * 0.02;
+    const topY = cy - scale * 0.35;
+
+    ctx.save();
+    const robe = robeShape(cx, cy, scale);
+    ctx.clip(robe);
+
+    // Base gold for woman's side
+    const goldGrad = ctx.createLinearGradient(midX, topY, midX + scale * 0.2, topY + scale * 0.7);
+    goldGrad.addColorStop(0, '#d4b040');
+    goldGrad.addColorStop(0.5, '#c8a030');
+    goldGrad.addColorStop(1, '#b08828');
+    ctx.fillStyle = goldGrad;
+    ctx.fillRect(midX, topY - scale * 0.05, scale * 0.25, scale * 0.75);
+
+    // Klimt circles/spirals pattern (woman's side)
+    const circR = scale * 0.015;
+    for (let ry = topY + scale * 0.08; ry < topY + scale * 0.65; ry += circR * 2.8) {
+        for (let rx = midX + scale * 0.01; rx < midX + scale * 0.2; rx += circR * 2.8) {
+            ctx.globalAlpha = 0.5 + Math.random() * 0.4;
+            const pattern = Math.random();
+            if (pattern < 0.35) {
+                // Concentric circles
+                ctx.beginPath();
+                ctx.arc(rx, ry, circR, 0, TAU);
+                const colors = ['#e06080', '#d4a0c0', '#c060a0', '#f0a0c0'];
+                ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(rx, ry, circR * 0.5, 0, TAU);
+                ctx.fillStyle = '#f5e880';
+                ctx.fill();
+            } else if (pattern < 0.55) {
+                // Triangles
+                ctx.beginPath();
+                ctx.moveTo(rx, ry - circR);
+                ctx.lineTo(rx + circR * 0.8, ry + circR * 0.6);
+                ctx.lineTo(rx - circR * 0.8, ry + circR * 0.6);
+                ctx.closePath();
+                ctx.fillStyle = Math.random() < 0.5 ? '#4080c0' : '#60a0d0';
+                ctx.fill();
+            } else {
+                // Gold circles
+                const g = golds[Math.floor(Math.random() * golds.length)];
+                ctx.beginPath();
+                ctx.arc(rx, ry, circR * 0.8, 0, TAU);
+                ctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`;
+                ctx.fill();
+            }
+        }
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+}
+
+function drawFlesh(cx, cy, scale) {
+    const midX = cx - scale * 0.02;
+    const topY = cy - scale * 0.35;
+
+    // Skin tone
+    const skin = '#e8c8a0';
+    const skinShadow = '#c8a078';
+    const skinHighlight = '#f0dcc0';
+
+    // Man's face (turned down, we see mostly the side/top)
+    ctx.save();
+    ctx.beginPath();
+    const mfx = midX - scale * 0.03;
+    const mfy = topY + scale * 0.06;
+    ctx.ellipse(mfx, mfy, scale * 0.045, scale * 0.055, -0.2, 0, TAU);
+    const faceGrad = ctx.createRadialGradient(mfx, mfy, 0, mfx, mfy, scale * 0.05);
+    faceGrad.addColorStop(0, skinHighlight);
+    faceGrad.addColorStop(0.7, skin);
+    faceGrad.addColorStop(1, skinShadow);
+    ctx.fillStyle = faceGrad;
+    ctx.fill();
+    ctx.restore();
+
+    // Woman's face (tilted, looking up/away)
+    ctx.save();
+    ctx.beginPath();
+    const wfx = midX + scale * 0.06;
+    const wfy = topY + scale * 0.1;
+    ctx.ellipse(wfx, wfy, scale * 0.04, scale * 0.052, 0.3, 0, TAU);
+    const wfaceGrad = ctx.createRadialGradient(wfx, wfy, 0, wfx, wfy, scale * 0.048);
+    wfaceGrad.addColorStop(0, '#f0d4b8');
+    wfaceGrad.addColorStop(0.6, skin);
+    wfaceGrad.addColorStop(1, skinShadow);
+    ctx.fillStyle = wfaceGrad;
+    ctx.fill();
+
+    // Closed eyes — woman
+    ctx.beginPath();
+    ctx.moveTo(wfx - scale * 0.015, wfy - scale * 0.005);
+    ctx.quadraticCurveTo(wfx - scale * 0.005, wfy - scale * 0.015, wfx + scale * 0.005, wfy - scale * 0.005);
+    ctx.strokeStyle = '#8a6848';
+    ctx.lineWidth = scale * 0.002;
+    ctx.stroke();
+
+    // Lips — woman
+    ctx.beginPath();
+    ctx.moveTo(wfx - scale * 0.01, wfy + scale * 0.015);
+    ctx.quadraticCurveTo(wfx, wfy + scale * 0.01, wfx + scale * 0.008, wfy + scale * 0.016);
+    ctx.strokeStyle = '#c07060';
+    ctx.lineWidth = scale * 0.003;
+    ctx.stroke();
+
+    // Blush
+    ctx.beginPath();
+    ctx.arc(wfx + scale * 0.01, wfy + scale * 0.005, scale * 0.015, 0, TAU);
+    ctx.fillStyle = 'rgba(220, 140, 120, 0.2)';
+    ctx.fill();
+    ctx.restore();
+
+    // Woman's neck
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(wfx - scale * 0.01, wfy + scale * 0.04);
+    ctx.quadraticCurveTo(wfx + scale * 0.01, wfy + scale * 0.07, wfx + scale * 0.03, wfy + scale * 0.1);
+    ctx.lineWidth = scale * 0.035;
+    ctx.strokeStyle = skin;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    // Man's hands cupping her face
+    ctx.save();
+    // Left hand
+    ctx.beginPath();
+    ctx.ellipse(wfx - scale * 0.025, wfy + scale * 0.01, scale * 0.02, scale * 0.015, -0.5, 0, TAU);
+    ctx.fillStyle = skinShadow;
+    ctx.fill();
+    // Right hand on her head
+    ctx.beginPath();
+    ctx.ellipse(mfx + scale * 0.04, mfy + scale * 0.02, scale * 0.018, scale * 0.013, 0.3, 0, TAU);
+    ctx.fillStyle = skin;
+    ctx.fill();
+
+    // Fingers suggestion
+    for (let f = 0; f < 4; f++) {
+        ctx.beginPath();
+        const fx = wfx - scale * 0.035 + f * scale * 0.008;
+        const fy = wfy + scale * 0.02 - f * scale * 0.005;
+        ctx.ellipse(fx, fy, scale * 0.005, scale * 0.012, -0.3 + f * 0.15, 0, TAU);
+        ctx.fillStyle = f % 2 === 0 ? skin : skinShadow;
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // Woman's shoulder/arm
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(wfx + scale * 0.04, wfy + scale * 0.1);
+    ctx.quadraticCurveTo(wfx + scale * 0.07, wfy + scale * 0.18, wfx + scale * 0.05, wfy + scale * 0.25);
+    ctx.lineWidth = scale * 0.04;
+    ctx.strokeStyle = skin;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+
+    // Woman's hand reaching up to his neck
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(mfx + scale * 0.01, mfy + scale * 0.06, scale * 0.015, scale * 0.012, 0.5, 0, TAU);
+    ctx.fillStyle = skin;
+    ctx.fill();
+    ctx.restore();
+
+    // Feet peeking out at bottom right
+    ctx.save();
+    const footY = cy + scale * 0.27;
+    const footX = midX + scale * 0.12;
+    ctx.beginPath();
+    ctx.ellipse(footX, footY, scale * 0.025, scale * 0.012, 0.2, 0, TAU);
+    ctx.fillStyle = skinHighlight;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(footX + scale * 0.03, footY + scale * 0.01, scale * 0.02, scale * 0.01, 0.3, 0, TAU);
+    ctx.fillStyle = skin;
+    ctx.fill();
+    ctx.restore();
+}
+
+function drawHair(cx, cy, scale) {
+    const midX = cx - scale * 0.02;
+    const topY = cy - scale * 0.35;
+
+    // Man's hair — dark, short, wreath of ivy
+    ctx.save();
+    const mhx = midX - scale * 0.04;
+    const mhy = topY + scale * 0.02;
+    ctx.beginPath();
+    ctx.ellipse(mhx, mhy, scale * 0.055, scale * 0.055, -0.1, 0, TAU);
+    ctx.fillStyle = '#2a2018';
+    ctx.fill();
+    // Texture
+    for (let i = 0; i < 30; i++) {
+        const a = Math.random() * TAU;
+        const r = Math.random() * scale * 0.05;
+        ctx.beginPath();
+        ctx.moveTo(mhx + Math.cos(a) * r * 0.5, mhy + Math.sin(a) * r * 0.5);
+        ctx.lineTo(mhx + Math.cos(a) * r, mhy + Math.sin(a) * r);
+        ctx.strokeStyle = `rgba(30,20,10,${0.3 + Math.random() * 0.5})`;
+        ctx.lineWidth = scale * 0.003;
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // Woman's hair — flowing, auburn/red-brown, decorated with flowers
+    ctx.save();
+    const whx = midX + scale * 0.07;
+    const why = topY + scale * 0.05;
+
+    // Main hair mass
+    ctx.beginPath();
+    ctx.moveTo(whx - scale * 0.02, why - scale * 0.04);
+    ctx.quadraticCurveTo(whx + scale * 0.06, why - scale * 0.03, whx + scale * 0.07, why + scale * 0.05);
+    ctx.quadraticCurveTo(whx + scale * 0.08, why + scale * 0.15, whx + scale * 0.04, why + scale * 0.25);
+    ctx.quadraticCurveTo(whx, why + scale * 0.3, whx - scale * 0.03, why + scale * 0.28);
+    ctx.quadraticCurveTo(whx - scale * 0.05, why + scale * 0.15, whx - scale * 0.03, why + scale * 0.05);
+    ctx.closePath();
+
+    const hairGrad = ctx.createLinearGradient(whx, why - scale * 0.04, whx, why + scale * 0.3);
+    hairGrad.addColorStop(0, '#5a3020');
+    hairGrad.addColorStop(0.3, '#7a4030');
+    hairGrad.addColorStop(0.7, '#4a2818');
+    hairGrad.addColorStop(1, '#3a2010');
+    ctx.fillStyle = hairGrad;
+    ctx.fill();
+
+    // Hair strands
+    for (let i = 0; i < 40; i++) {
+        ctx.beginPath();
+        const sx = whx + (Math.random() - 0.3) * scale * 0.06;
+        const sy = why + Math.random() * scale * 0.25;
+        ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(
+            sx + (Math.random() - 0.5) * scale * 0.03,
+            sy + scale * 0.04,
+            sx + (Math.random() - 0.3) * scale * 0.04,
+            sy + scale * 0.08
+        );
+        ctx.strokeStyle = `rgba(100,55,35,${0.2 + Math.random() * 0.3})`;
+        ctx.lineWidth = scale * 0.002;
+        ctx.stroke();
+    }
+
+    // Small flowers in her hair
+    const hairFlowers = ['#f0d060', '#e8a0c0', '#f0c040', '#d080a0'];
+    for (let i = 0; i < 8; i++) {
+        const ffx = whx + (Math.random() - 0.2) * scale * 0.08;
+        const ffy = why + scale * 0.02 + Math.random() * scale * 0.15;
+        const fr = scale * 0.006;
+        ctx.beginPath();
+        ctx.arc(ffx, ffy, fr, 0, TAU);
+        ctx.fillStyle = hairFlowers[Math.floor(Math.random() * hairFlowers.length)];
+        ctx.globalAlpha = 0.7;
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+}
+
+function drawGoldLeaf(cx, cy, scale) {
+    const robe = robeShape(cx, cy, scale);
+    ctx.save();
+    ctx.clip(robe);
+
+    // Shimmering gold overlay
+    for (let i = 0; i < 300; i++) {
+        const midX = cx - scale * 0.02;
+        const topY = cy - scale * 0.35;
+        const gx = midX + (Math.random() - 0.5) * scale * 0.4;
+        const gy = topY + Math.random() * scale * 0.65;
+        const gr = scale * (0.002 + Math.random() * 0.006);
+        const g = golds[Math.floor(Math.random() * golds.length)];
+        ctx.beginPath();
+        ctx.arc(gx, gy, gr, 0, TAU);
+        ctx.fillStyle = `rgba(${g[0]},${g[1]},${g[2]},${0.1 + Math.random() * 0.25})`;
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function drawCrown(cx, cy, scale) {
+    const midX = cx - scale * 0.02;
+    const topY = cy - scale * 0.35;
+    const mhx = midX - scale * 0.04;
+    const mhy = topY + scale * 0.02;
+
+    // Ivy leaves crown
+    ctx.save();
+    for (let i = 0; i < 12; i++) {
+        const angle = -PI * 0.8 + (i / 12) * PI * 1.2;
+        const lx = mhx + Math.cos(angle) * scale * 0.058;
+        const ly = mhy + Math.sin(angle) * scale * 0.055;
+        ctx.save();
+        ctx.translate(lx, ly);
+        ctx.rotate(angle + PI / 2);
+        // Leaf shape
+        ctx.beginPath();
+        ctx.moveTo(0, -scale * 0.01);
+        ctx.quadraticCurveTo(scale * 0.008, -scale * 0.005, scale * 0.006, scale * 0.005);
+        ctx.quadraticCurveTo(0, scale * 0.01, -scale * 0.006, scale * 0.005);
+        ctx.quadraticCurveTo(-scale * 0.008, -scale * 0.005, 0, -scale * 0.01);
+        ctx.fillStyle = `rgba(${60 + Math.random() * 40}, ${100 + Math.random() * 50}, ${30 + Math.random() * 20}, 0.8)`;
+        ctx.fill();
+        ctx.restore();
+    }
+    ctx.restore();
+}
+
+// Store the robe path for hit-testing
+let robePathData;
+
+function isOnGoldFabric(px, py) {
+    const robe = robeShape(W / 2, H / 2, Math.min(W, H));
+    return ctx.isPointInPath(robe, px, py);
+}
+
+// Spark system — sparks that expand to fill the whole screen then dissolve
+class Spark {
+    constructor(originX, originY, targetX, targetY, delay) {
+        const g = golds[Math.floor(Math.random() * golds.length)];
+        this.color = g;
+        this.originX = originX;
+        this.originY = originY;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        this.delay = delay; // frames before this spark starts moving
+        this.radius = (2 + Math.random() * 4) * devicePixelRatio;
+
+        // Travel duration in frames — longer for farther targets
+        const dx = targetX - originX;
+        const dy = targetY - originY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const maxDist = Math.sqrt(W * W + H * H);
+        this.travelFrames = 60 + (dist / maxDist) * 80 + Math.random() * 30;
+
+        // Hold at full brightness then fade
+        this.holdFrames = 30 + Math.random() * 40;
+        this.fadeFrames = 80 + Math.random() * 60;
+        this.totalFrames = this.delay + this.travelFrames + this.holdFrames + this.fadeFrames;
+
+        this.frame = 0;
+        this.alive = true;
+
+        // Gentle wandering offset
+        this.wobbleAmp = 5 + Math.random() * 15;
+        this.wobbleFreq = 0.02 + Math.random() * 0.03;
+        this.wobblePhase = Math.random() * TAU;
+    }
+
+    update() {
+        this.frame++;
+        if (this.frame >= this.totalFrames) {
+            this.alive = false;
+        }
+    }
+
+    getState() {
+        const f = this.frame;
+        const d = this.delay;
+        const t = this.travelFrames;
+        const h = this.holdFrames;
+        const fade = this.fadeFrames;
+
+        if (f < d) {
+            // Waiting — not visible yet
+            return { alpha: 0, x: this.originX, y: this.originY };
+        }
+
+        const activeFrame = f - d;
+
+        let progress, alpha, x, y;
+
+        if (activeFrame < t) {
+            // Traveling from origin to target
+            progress = activeFrame / t;
+            // Ease out cubic
+            const ease = 1 - Math.pow(1 - progress, 3);
+            x = this.originX + (this.targetX - this.originX) * ease;
+            y = this.originY + (this.targetY - this.originY) * ease;
+            // Wobble perpendicular to travel direction
+            const angle = Math.atan2(this.targetY - this.originY, this.targetX - this.originX);
+            const wobble = Math.sin(activeFrame * this.wobbleFreq + this.wobblePhase) * this.wobbleAmp * (1 - ease);
+            x += Math.cos(angle + PI / 2) * wobble;
+            y += Math.sin(angle + PI / 2) * wobble;
+            // Fade in quickly
+            alpha = Math.min(1, progress * 3);
+        } else if (activeFrame < t + h) {
+            // Holding at target — full brightness, gentle drift
+            x = this.targetX + Math.sin((activeFrame - t) * 0.02 + this.wobblePhase) * 2;
+            y = this.targetY + Math.cos((activeFrame - t) * 0.015 + this.wobblePhase) * 2;
+            alpha = 1;
+        } else {
+            // Dissolving
+            const fadeProgress = (activeFrame - t - h) / fade;
+            x = this.targetX + Math.sin((activeFrame - t) * 0.02 + this.wobblePhase) * 2;
+            y = this.targetY + Math.cos((activeFrame - t) * 0.015 + this.wobblePhase) * 2;
+            // Gentle ease out
+            alpha = 1 - fadeProgress * fadeProgress;
+        }
+
+        return { alpha: Math.max(0, alpha), x, y };
+    }
+
+    draw(ctx) {
+        const { alpha, x, y } = this.getState();
+        if (alpha <= 0) return;
+
+        const c = this.color;
+        const r = this.radius;
+
+        // Soft glow
+        ctx.beginPath();
+        ctx.arc(x, y, r * 5, 0, TAU);
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.08})`;
+        ctx.fill();
+
+        // Outer glow
+        ctx.beginPath();
+        ctx.arc(x, y, r * 2.5, 0, TAU);
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.2})`;
+        ctx.fill();
+
+        // Core
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, TAU);
+        ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${alpha * 0.7})`;
+        ctx.fill();
+
+        // Bright center
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.35, 0, TAU);
+        ctx.fillStyle = `rgba(255,248,220,${alpha * 0.9})`;
+        ctx.fill();
+    }
+}
+
+// Envelope effect — golden wash that covers the screen
+let envelopeAlpha = 0;
+let envelopePhase = 'none'; // 'none', 'rising', 'holding', 'fading'
+let envelopeFrame = 0;
+const envelopeRiseFrames = 90;
+const envelopeHoldFrames = 40;
+const envelopeFadeFrames = 120;
+
+function triggerEnvelope(originX, originY) {
+    // Don't re-trigger if already animating
+    if (sparks.length > 0) return;
+
+    // Create a grid of sparks that will cover the entire screen
+    const spacing = 28 * devicePixelRatio;
+    const cols = Math.ceil(W / spacing) + 1;
+    const rows = Math.ceil(H / spacing) + 1;
+
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const tx = col * spacing + (Math.random() - 0.5) * spacing * 0.6;
+            const ty = row * spacing + (Math.random() - 0.5) * spacing * 0.6;
+
+            // Delay based on distance from click point — creates radial wave
+            const dx = tx - originX;
+            const dy = ty - originY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = Math.sqrt(W * W + H * H);
+            const delay = (dist / maxDist) * 50 + Math.random() * 15;
+
+            sparks.push(new Spark(originX, originY, tx, ty, delay));
+        }
+    }
+
+    // Start the golden envelope wash
+    envelopePhase = 'rising';
+    envelopeFrame = 0;
+}
+
+// Initial draw
+drawScene();
+
+// Store the scene as an image so we don't redraw every frame
+let sceneImage;
+function captureScene() {
+    sceneImage = ctx.getImageData(0, 0, W, H);
+}
+captureScene();
+
+window.addEventListener('resize', () => {
+    resize();
+    drawScene();
+    captureScene();
+});
+
+// Mouse/touch interaction
+function handleClick(clientX, clientY) {
+    const px = clientX * devicePixelRatio;
+    const py = clientY * devicePixelRatio;
+
+    if (isOnGoldFabric(px, py)) {
+        triggerEnvelope(px, py);
+    }
+}
+
+canvas.addEventListener('mousedown', (e) => handleClick(e.clientX, e.clientY));
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    for (const touch of e.touches) {
+        handleClick(touch.clientX, touch.clientY);
+    }
+});
+
+// Update envelope wash
+function updateEnvelope() {
+    if (envelopePhase === 'none') return;
+    envelopeFrame++;
+
+    if (envelopePhase === 'rising') {
+        envelopeAlpha = (envelopeFrame / envelopeRiseFrames) * 0.12;
+        if (envelopeFrame >= envelopeRiseFrames) {
+            envelopePhase = 'holding';
+            envelopeFrame = 0;
+        }
+    } else if (envelopePhase === 'holding') {
+        envelopeAlpha = 0.12;
+        if (envelopeFrame >= envelopeHoldFrames) {
+            envelopePhase = 'fading';
+            envelopeFrame = 0;
+        }
+    } else if (envelopePhase === 'fading') {
+        const t = envelopeFrame / envelopeFadeFrames;
+        envelopeAlpha = 0.12 * (1 - t * t);
+        if (envelopeFrame >= envelopeFadeFrames) {
+            envelopePhase = 'none';
+            envelopeAlpha = 0;
+        }
+    }
+}
+
+// Animation loop
+function animate() {
+    const hasActivity = sparks.length > 0 || envelopePhase !== 'none';
+
+    if (hasActivity) {
+        // Restore the scene
+        ctx.putImageData(sceneImage, 0, 0);
+
+        // Update and draw envelope wash
+        updateEnvelope();
+        if (envelopeAlpha > 0) {
+            ctx.fillStyle = `rgba(218, 185, 80, ${envelopeAlpha})`;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        // Update and draw sparks
+        for (let i = sparks.length - 1; i >= 0; i--) {
+            sparks[i].update();
+            sparks[i].draw(ctx);
+            if (!sparks[i].alive) {
+                sparks.splice(i, 1);
+            }
+        }
+    }
+
+    requestAnimationFrame(animate);
+}
+animate();
+</script>
+</body>
+</html>
