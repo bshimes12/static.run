@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spring Garden</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    font-family: system-ui, sans-serif;
+    cursor: default;
+}
+
+canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+}
+
+#hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.7);
+    font-size: 1.1rem;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+    transition: opacity 1.5s ease;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    z-index: 10;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">click the clouds</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const hint = document.getElementById('hint');
+
+let W, H;
+function resize() {
+    W = canvas.width = window.innerWidth * devicePixelRatio;
+    H = canvas.height = window.innerHeight * devicePixelRatio;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── State machine ──
+// 0: waiting, 1: raining, 2: blooming, 3: sun emerging, 4: bird flying, 5: done
+let phase = 0;
+let phaseTime = 0;
+let rainProgress = 0;   // 0→1 during rain
+let bloomProgress = 0;  // 0→1 during bloom
+let sunProgress = 0;    // 0→1 sun emerging
+let birdProgress = -1;  // -0.1 → 1.1 bird flight
+let cloudFade = 0;       // 0→1 clouds fading out
+
+// ── Sky colors ──
+const skyOvercast = ['#8a95a5','#9ca8b8','#b0bcc9'];
+const skySunny    = ['#4a9fe5','#6bb8f0','#9dd4f8'];
+
+// ── Clouds ──
+const clouds = [];
+function initClouds() {
+    clouds.length = 0;
+    const cw = W;
+    const ch = H * 0.45;
+    for (let i = 0; i < 8; i++) {
+        clouds.push({
+            x: Math.random() * cw,
+            y: ch * 0.1 + Math.random() * ch * 0.6,
+            w: W * (0.18 + Math.random() * 0.16),
+            h: H * (0.06 + Math.random() * 0.04),
+            speed: W * 0.00002 * (0.5 + Math.random()),
+            puffs: 3 + Math.floor(Math.random() * 4)
+        });
+    }
+}
+initClouds();
+
+// ── Rain drops ──
+const drops = [];
+function spawnDrop() {
+    drops.push({
+        x: Math.random() * W,
+        y: -20,
+        speed: H * 0.004 + Math.random() * H * 0.003,
+        len: H * 0.012 + Math.random() * H * 0.008,
+        opacity: 0.2 + Math.random() * 0.35
+    });
+}
+
+// ── Ground / soil ──
+const groundY = () => H * 0.72;
+
+// ── Grass blades (pre-generated) ──
+let grassBlades = [];
+function initGrass() {
+    grassBlades = [];
+    const gy = groundY();
+    const grassCount = Math.floor(W / (3 * devicePixelRatio));
+    for (let i = 0; i < grassCount; i++) {
+        const gx = Math.random() * W;
+        const gBase = gy + Math.sin(gx * 0.005 + 1.3) * H * 0.008 + Math.sin(gx * 0.012) * H * 0.004;
+        grassBlades.push({
+            x: gx,
+            y: gBase,
+            h: H * 0.008 + Math.random() * H * 0.015,
+            lean: (Math.random() - 0.5) * 0.3,
+            r: 70 + Math.floor(Math.random() * 30),
+            g: 100 + Math.floor(Math.random() * 40),
+            b: 50 + Math.floor(Math.random() * 20)
+        });
+    }
+}
+
+// ── Flowers ──
+const flowers = [];
+function initFlowers() {
+    flowers.length = 0;
+    const gy = groundY();
+    const count = Math.max(12, Math.floor(W / (50 * devicePixelRatio)));
+    for (let i = 0; i < count; i++) {
+        const type = Math.random() < 0.5 ? 'crocus' : 'daffodil';
+        flowers.push({
+            type,
+            x: W * 0.05 + Math.random() * W * 0.9,
+            baseY: gy + H * 0.01 + Math.random() * H * 0.04,
+            maxHeight: H * (0.7 + Math.random() * 0.6),
+            initialHeight: H * (0.015 + Math.random() * 0.01),
+            sway: Math.random() * Math.PI * 2,
+            swayAmp: 0.02 + Math.random() * 0.02,
+            hue: type === 'crocus'
+                ? [260 + Math.random() * 30, 0.6 + Math.random() * 0.3]  // purple/violet
+                : [45 + Math.random() * 15, 0.85 + Math.random() * 0.15], // yellow/gold
+            bloomDelay: Math.random() * 0.4,
+            size: 1.5 + Math.random() * 2.5
+        });
+    }
+    flowers.sort((a, b) => a.baseY - b.baseY);
+}
+initFlowers();
+initGrass();
+
+// ── Bird ──
+const bird = { x: 0, y: 0, wingPhase: 0, size: 1 };
+
+// ── Click handler ──
+canvas.addEventListener('click', (e) => {
+    if (phase !== 0) return;
+    const mx = e.clientX * devicePixelRatio;
+    const my = e.clientY * devicePixelRatio;
+    // Check if click is in cloud region (top 45%)
+    if (my < H * 0.5) {
+        phase = 1;
+        phaseTime = 0;
+        hint.style.opacity = '0';
+    }
+});
+
+// ── Draw functions ──
+
+function lerpColor(a, b, t) {
+    // a, b are [r,g,b]
+    return a.map((v, i) => Math.round(v + (b[i] - v) * t));
+}
+
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return [r, g, b];
+}
+
+function drawSky(sunT) {
+    const grad = ctx.createLinearGradient(0, 0, 0, H * 0.75);
+    for (let i = 0; i < 3; i++) {
+        const oc = hexToRgb(skyOvercast[i]);
+        const sc = hexToRgb(skySunny[i]);
+        const c = lerpColor(oc, sc, sunT);
+        grad.addColorStop(i * 0.5, `rgb(${c.join(',')})`);
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+}
+
+function drawSun(t) {
+    if (t <= 0) return;
+    const sunX = W * 0.78;
+    const sunY = H * 0.12;
+    const maxR = Math.min(W, H) * 0.06;
+    const r = maxR * t;
+
+    // Glow
+    const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, r * 4);
+    glow.addColorStop(0, `rgba(255,240,180,${0.4 * t})`);
+    glow.addColorStop(0.5, `rgba(255,220,100,${0.1 * t})`);
+    glow.addColorStop(1, 'rgba(255,220,100,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H * 0.5);
+
+    // Rays
+    ctx.save();
+    ctx.translate(sunX, sunY);
+    for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2 + phaseTime * 0.1;
+        ctx.save();
+        ctx.rotate(angle);
+        ctx.globalAlpha = 0.12 * t;
+        ctx.fillStyle = '#ffe866';
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.12, r * 1.2);
+        ctx.lineTo(r * 0.12, r * 1.2);
+        ctx.lineTo(0, r * 2.8);
+        ctx.fill();
+        ctx.restore();
+    }
+    ctx.restore();
+
+    // Sun disc
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, r, 0, Math.PI * 2);
+    const sunGrad = ctx.createRadialGradient(sunX - r * 0.3, sunY - r * 0.3, 0, sunX, sunY, r);
+    sunGrad.addColorStop(0, `rgba(255,250,220,${t})`);
+    sunGrad.addColorStop(1, `rgba(255,210,80,${t})`);
+    ctx.fillStyle = sunGrad;
+    ctx.fill();
+}
+
+function drawCloud(c, alpha) {
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const puffW = c.w / c.puffs;
+    for (let i = 0; i < c.puffs; i++) {
+        const px = c.x - c.w / 2 + puffW * i + puffW * 0.5;
+        const py = c.y + Math.sin(i * 1.5) * c.h * 0.3;
+        const pr = puffW * 0.6 + (i % 2 === 0 ? c.h * 0.3 : 0);
+        ctx.beginPath();
+        ctx.arc(px, py, pr, 0, Math.PI * 2);
+        ctx.fillStyle = phase >= 3 ? '#f0f4f8' : '#c8cfd8';
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function drawClouds(fadeT) {
+    clouds.forEach(c => {
+        c.x += c.speed;
+        if (c.x - c.w > W) c.x = -c.w;
+        drawCloud(c, 1 - fadeT * 0.7);
+    });
+}
+
+function drawGround() {
+    const gy = groundY();
+
+    // Soil layers
+    const soilGrad = ctx.createLinearGradient(0, gy, 0, H);
+    soilGrad.addColorStop(0, '#5a7247');
+    soilGrad.addColorStop(0.05, '#4a6238');
+    soilGrad.addColorStop(0.15, '#3d4a2f');
+    soilGrad.addColorStop(0.4, '#2e3622');
+    soilGrad.addColorStop(1, '#1e2418');
+    ctx.fillStyle = soilGrad;
+
+    // Slightly wavy top edge
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    ctx.lineTo(0, gy);
+    for (let x = 0; x <= W; x += W * 0.02) {
+        const y = gy + Math.sin(x * 0.005 + 1.3) * H * 0.008 + Math.sin(x * 0.012) * H * 0.004;
+        ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.fill();
+
+    // Grass blades (pre-generated)
+    for (let i = 0; i < grassBlades.length; i++) {
+        const g = grassBlades[i];
+        ctx.strokeStyle = `rgba(${g.r}, ${g.g}, ${g.b}, 0.7)`;
+        ctx.lineWidth = 1 * devicePixelRatio;
+        ctx.beginPath();
+        ctx.moveTo(g.x, g.y);
+        ctx.quadraticCurveTo(g.x + g.lean * g.h, g.y - g.h * 0.6, g.x + g.lean * g.h * 1.5, g.y - g.h);
+        ctx.stroke();
+    }
+}
+
+function drawFlower(f, bloom) {
+    // bloom: 0 = just a nub, 1 = full bloom
+    const localBloom = Math.max(0, Math.min(1, (bloom - f.bloomDelay) / (1 - f.bloomDelay)));
+    const height = f.initialHeight + (f.maxHeight - f.initialHeight) * localBloom;
+    const sway = Math.sin(phaseTime * 1.5 + f.sway) * f.swayAmp * height;
+
+    const baseX = f.x;
+    const baseY = f.baseY;
+    const tipX = baseX + sway;
+    const tipY = baseY - height;
+    const ctrlX = baseX + sway * 0.5;
+    const ctrlY = baseY - height * 0.5;
+
+    const scale = f.size * devicePixelRatio;
+
+    // Stem
+    ctx.strokeStyle = `rgb(${60 + Math.floor(localBloom * 30)}, ${90 + Math.floor(localBloom * 50)}, ${40 + Math.floor(localBloom * 20)})`;
+    ctx.lineWidth = (1.5 + localBloom * 1) * scale * 0.7;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(baseX, baseY);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+    ctx.stroke();
+
+    // Leaves (appear during bloom)
+    if (localBloom > 0.2) {
+        const leafAlpha = Math.min(1, (localBloom - 0.2) / 0.4);
+        ctx.save();
+        ctx.globalAlpha = leafAlpha;
+        const leafY = baseY - height * 0.35;
+        const leafX = baseX + sway * 0.35;
+        ctx.fillStyle = `rgb(${65 + Math.floor(localBloom*30)}, ${105 + Math.floor(localBloom*40)}, ${45})`;
+        // Left leaf
+        ctx.beginPath();
+        ctx.moveTo(leafX, leafY);
+        ctx.quadraticCurveTo(leafX - 12 * scale, leafY - 8 * scale, leafX - 6 * scale, leafY + 6 * scale);
+        ctx.quadraticCurveTo(leafX - 2 * scale, leafY + 2 * scale, leafX, leafY);
+        ctx.fill();
+        // Right leaf
+        ctx.beginPath();
+        ctx.moveTo(leafX, leafY - height * 0.1);
+        ctx.quadraticCurveTo(leafX + 10 * scale, leafY - height * 0.1 - 6 * scale, leafX + 5 * scale, leafY - height * 0.1 + 5 * scale);
+        ctx.quadraticCurveTo(leafX + 2 * scale, leafY - height * 0.1 + 2 * scale, leafX, leafY - height * 0.1);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Flower head
+    if (f.type === 'crocus') {
+        drawCrocus(tipX, tipY, localBloom, f, scale);
+    } else {
+        drawDaffodil(tipX, tipY, localBloom, f, scale);
+    }
+}
+
+function drawCrocus(x, y, bloom, f, scale) {
+    if (bloom < 0.05) {
+        // Tiny bud nub
+        ctx.fillStyle = `hsla(${f.hue[0]}, ${f.hue[1]*100}%, 45%, 0.8)`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 2 * scale, 4 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
+
+    const petalCount = 6;
+    const petalLen = (8 + bloom * 14) * scale;
+    const openAngle = bloom * 0.6;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    for (let i = 0; i < petalCount; i++) {
+        const angle = -Math.PI / 2 + (i - (petalCount - 1) / 2) * openAngle * 0.3;
+        const hueShift = (i % 2 === 0) ? 0 : 10;
+
+        ctx.save();
+        ctx.rotate(angle);
+
+        // Petal
+        const grad = ctx.createLinearGradient(0, 0, 0, -petalLen);
+        grad.addColorStop(0, `hsla(${f.hue[0] + hueShift}, ${f.hue[1]*100}%, 55%, ${0.7 + bloom * 0.3})`);
+        grad.addColorStop(0.6, `hsla(${f.hue[0] + hueShift}, ${f.hue[1]*100}%, 65%, ${0.7 + bloom * 0.3})`);
+        grad.addColorStop(1, `hsla(${f.hue[0] + hueShift + 15}, ${f.hue[1]*80}%, 80%, ${0.6 + bloom * 0.3})`);
+        ctx.fillStyle = grad;
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(
+            -4 * scale * bloom, -petalLen * 0.4,
+            -5 * scale * bloom, -petalLen * 0.8,
+            0, -petalLen
+        );
+        ctx.bezierCurveTo(
+            5 * scale * bloom, -petalLen * 0.8,
+            4 * scale * bloom, -petalLen * 0.4,
+            0, 0
+        );
+        ctx.fill();
+
+        // Petal vein
+        ctx.strokeStyle = `hsla(${f.hue[0]}, ${f.hue[1]*100}%, 40%, ${0.15 * bloom})`;
+        ctx.lineWidth = 0.5 * scale;
+        ctx.beginPath();
+        ctx.moveTo(0, -2 * scale);
+        ctx.lineTo(0, -petalLen * 0.85);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    // Center stamen
+    if (bloom > 0.5) {
+        const stamenAlpha = (bloom - 0.5) * 2;
+        ctx.fillStyle = `rgba(255, 200, 50, ${stamenAlpha * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(0, -2 * scale, 2.5 * scale * bloom, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawDaffodil(x, y, bloom, f, scale) {
+    if (bloom < 0.05) {
+        // Tiny bud nub
+        ctx.fillStyle = `hsla(${f.hue[0]}, ${f.hue[1]*100}%, 55%, 0.8)`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, 2 * scale, 5 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
+
+    const petalCount = 6;
+    const petalLen = (10 + bloom * 16) * scale;
+    const openAngle = bloom * 0.8;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-0.1); // slight tilt like real daffodils nod
+
+    // Outer petals
+    for (let i = 0; i < petalCount; i++) {
+        const angle = (i / petalCount) * Math.PI * 2 - Math.PI / 2;
+        const spread = bloom;
+
+        ctx.save();
+        ctx.rotate(angle);
+
+        const grad = ctx.createLinearGradient(0, 0, 0, -petalLen);
+        grad.addColorStop(0, `hsla(${f.hue[0]}, ${f.hue[1]*100}%, 60%, ${0.8 + bloom * 0.2})`);
+        grad.addColorStop(0.5, `hsla(${f.hue[0]+5}, ${f.hue[1]*100}%, 70%, ${0.8 + bloom * 0.2})`);
+        grad.addColorStop(1, `hsla(${f.hue[0]+10}, ${f.hue[1]*80}%, 80%, ${0.7 + bloom * 0.2})`);
+        ctx.fillStyle = grad;
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(
+            -5 * scale * spread, -petalLen * 0.3,
+            -6 * scale * spread, -petalLen * 0.7,
+            -1 * scale, -petalLen
+        );
+        ctx.bezierCurveTo(
+            1 * scale, -petalLen * 1.02,
+            6 * scale * spread, -petalLen * 0.7,
+            0, 0
+        );
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    // Corona (trumpet) - the distinctive daffodil cup
+    if (bloom > 0.3) {
+        const coronaBloom = (bloom - 0.3) / 0.7;
+        const coronaR = 6 * scale * coronaBloom;
+        const coronaH = 4 * scale * coronaBloom;
+
+        // Trumpet shape
+        ctx.fillStyle = `hsla(${f.hue[0]+15}, 90%, 55%, ${coronaBloom * 0.9})`;
+        ctx.beginPath();
+        ctx.ellipse(0, -2 * scale, coronaR, coronaR * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inner darker ring
+        ctx.strokeStyle = `hsla(${f.hue[0]+20}, 85%, 45%, ${coronaBloom * 0.5})`;
+        ctx.lineWidth = 1.5 * scale;
+        ctx.beginPath();
+        ctx.ellipse(0, -2 * scale, coronaR * 0.7, coronaR * 0.4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Ruffled edge
+        ctx.strokeStyle = `hsla(${f.hue[0]+10}, 80%, 50%, ${coronaBloom * 0.6})`;
+        ctx.lineWidth = 1 * scale;
+        ctx.beginPath();
+        for (let a = 0; a < Math.PI * 2; a += 0.15) {
+            const rr = coronaR + Math.sin(a * 8) * 1.5 * scale;
+            const rx = Math.cos(a) * rr;
+            const ry = Math.sin(a) * rr * 0.6 - 2 * scale;
+            if (a === 0) ctx.moveTo(rx, ry);
+            else ctx.lineTo(rx, ry);
+        }
+        ctx.closePath();
+        ctx.stroke();
+
+        // Center dot
+        ctx.fillStyle = `rgba(180, 130, 20, ${coronaBloom * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(0, -2 * scale, 1.5 * scale, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+function drawRain(intensity) {
+    if (intensity <= 0) return;
+
+    // Spawn drops — more drops for visible rain
+    const dropRate = Math.floor(intensity * 25);
+    for (let i = 0; i < dropRate; i++) spawnDrop();
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    const gy = groundY();
+    for (let i = drops.length - 1; i >= 0; i--) {
+        const d = drops[i];
+        d.y += d.speed;
+        d.x -= d.speed * 0.08; // slight wind angle
+
+        if (d.y > gy) {
+            // Splash
+            if (intensity > 0.2) {
+                ctx.globalAlpha = d.opacity * intensity * 0.5;
+                ctx.strokeStyle = '#a8c4d8';
+                ctx.lineWidth = 1;
+                for (let s = 0; s < 3; s++) {
+                    const sa = -Math.PI * (0.2 + Math.random() * 0.6);
+                    const sl = 3 + Math.random() * 5;
+                    ctx.beginPath();
+                    ctx.moveTo(d.x, d.y);
+                    ctx.lineTo(d.x + Math.cos(sa) * sl * devicePixelRatio, d.y + Math.sin(sa) * sl * devicePixelRatio);
+                    ctx.stroke();
+                }
+            }
+            drops.splice(i, 1);
+            continue;
+        }
+
+        ctx.globalAlpha = d.opacity * intensity;
+        ctx.strokeStyle = '#aac3dc';
+        ctx.lineWidth = 1.5 * devicePixelRatio;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x + d.len * 0.08, d.y - d.len);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawBird(t) {
+    if (t < 0 || t > 1.15) return;
+    const bx = -W * 0.08 + t * W * 1.16;
+    const by = H * 0.15 + Math.sin(t * 6) * H * 0.03;
+    const bSize = Math.min(W, H) * 0.02;
+    const wing = Math.sin(phaseTime * 8) * 0.5 + 0.5;
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.strokeStyle = `rgba(40, 35, 30, ${Math.min(1, (1 - Math.abs(t - 0.5) * 1.5)) * 0.8})`;
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Left wing
+    ctx.beginPath();
+    ctx.moveTo(-bSize * 0.3, 0);
+    ctx.quadraticCurveTo(-bSize, -bSize * wing * 0.8, -bSize * 1.5, -bSize * wing * 0.5);
+    ctx.stroke();
+
+    // Right wing
+    ctx.beginPath();
+    ctx.moveTo(bSize * 0.3, 0);
+    ctx.quadraticCurveTo(bSize, -bSize * wing * 0.8, bSize * 1.5, -bSize * wing * 0.5);
+    ctx.stroke();
+
+    // Body
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bSize * 0.3, bSize * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// ── Main loop ──
+let lastTime = 0;
+function frame(ts) {
+    const dt = Math.min(0.05, (ts - lastTime) / 1000);
+    lastTime = ts;
+    phaseTime += dt;
+
+    // Phase transitions
+    if (phase === 1) {
+        rainProgress = Math.min(1, rainProgress + dt * 0.25);
+        if (rainProgress >= 1) {
+            phase = 2;
+        }
+    } else if (phase === 2) {
+        bloomProgress = Math.min(1, bloomProgress + dt * 0.12);
+        rainProgress = Math.max(0, rainProgress - dt * 0.15);
+        if (bloomProgress >= 1) {
+            phase = 3;
+        }
+    } else if (phase === 3) {
+        rainProgress = Math.max(0, rainProgress - dt * 0.8);
+        sunProgress = Math.min(1, sunProgress + dt * 0.35);
+        cloudFade = Math.min(1, cloudFade + dt * 0.25);
+        if (sunProgress >= 1) {
+            phase = 4;
+            birdProgress = -0.08;
+        }
+    } else if (phase === 4) {
+        birdProgress += dt * 0.07;
+        if (birdProgress > 1.15) {
+            phase = 5;
+        }
+    }
+
+    // Ease functions
+    const easeBloom = bloomProgress < 0.5
+        ? 2 * bloomProgress * bloomProgress
+        : 1 - Math.pow(-2 * bloomProgress + 2, 2) / 2;
+    const easeSun = sunProgress * sunProgress * (3 - 2 * sunProgress);
+    const rainIntensity = phase === 1 ? rainProgress * rainProgress
+        : rainProgress;
+
+    // Draw
+    drawSky(easeSun);
+    drawSun(easeSun);
+    drawClouds(cloudFade);
+    drawGround();
+
+    // Flowers
+    flowers.forEach(f => drawFlower(f, easeBloom));
+
+    // Rain on top of flowers for depth
+    drawRain(rainIntensity);
+
+    // Bird
+    if (phase >= 4) drawBird(birdProgress);
+
+    // Gentle mist during rain
+    if (rainIntensity > 0.3) {
+        const gy = groundY();
+        const mistGrad = ctx.createLinearGradient(0, gy - H * 0.05, 0, gy + H * 0.05);
+        mistGrad.addColorStop(0, 'rgba(180,200,215,0)');
+        mistGrad.addColorStop(0.5, `rgba(180,200,215,${rainIntensity * 0.08})`);
+        mistGrad.addColorStop(1, 'rgba(180,200,215,0)');
+        ctx.fillStyle = mistGrad;
+        ctx.fillRect(0, gy - H * 0.05, W, H * 0.1);
+    }
+
+    requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// Re-init on resize
+window.addEventListener('resize', () => {
+    resize();
+    initClouds();
+    initFlowers();
+    initGrass();
+});
+</script>
+</body>
+</html>
