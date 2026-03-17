@@ -361,9 +361,14 @@ function drawCrocus(x, y, bloom, f, scale) {
         return;
     }
 
+    // Petal size grows exponentially — bloom³ makes them explode at the end
+    const growFactor = bloom * bloom * bloom;
+    const screenUnit = Math.max(W, H);
+    const petalLen = (8 * scale) + growFactor * screenUnit * 0.35 * (f.size / 3);
+    const petalWidth = (4 * scale) + growFactor * screenUnit * 0.12 * (f.size / 3);
+    const openAngle = bloom * 0.8;
+
     const petalCount = 6;
-    const petalLen = (8 + bloom * 14) * scale;
-    const openAngle = bloom * 0.6;
 
     ctx.save();
     ctx.translate(x, y);
@@ -385,20 +390,20 @@ function drawCrocus(x, y, bloom, f, scale) {
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.bezierCurveTo(
-            -4 * scale * bloom, -petalLen * 0.4,
-            -5 * scale * bloom, -petalLen * 0.8,
+            -petalWidth * bloom, -petalLen * 0.4,
+            -petalWidth * 1.2 * bloom, -petalLen * 0.8,
             0, -petalLen
         );
         ctx.bezierCurveTo(
-            5 * scale * bloom, -petalLen * 0.8,
-            4 * scale * bloom, -petalLen * 0.4,
+            petalWidth * 1.2 * bloom, -petalLen * 0.8,
+            petalWidth * bloom, -petalLen * 0.4,
             0, 0
         );
         ctx.fill();
 
         // Petal vein
         ctx.strokeStyle = `hsla(${f.hue[0]}, ${f.hue[1]*100}%, 40%, ${0.15 * bloom})`;
-        ctx.lineWidth = 0.5 * scale;
+        ctx.lineWidth = Math.max(0.5, bloom * 3) * scale;
         ctx.beginPath();
         ctx.moveTo(0, -2 * scale);
         ctx.lineTo(0, -petalLen * 0.85);
@@ -410,9 +415,10 @@ function drawCrocus(x, y, bloom, f, scale) {
     // Center stamen
     if (bloom > 0.5) {
         const stamenAlpha = (bloom - 0.5) * 2;
+        const stamenR = (2.5 * scale) + growFactor * screenUnit * 0.03;
         ctx.fillStyle = `rgba(255, 200, 50, ${stamenAlpha * 0.8})`;
         ctx.beginPath();
-        ctx.arc(0, -2 * scale, 2.5 * scale * bloom, 0, Math.PI * 2);
+        ctx.arc(0, -2 * scale, stamenR, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -429,9 +435,12 @@ function drawDaffodil(x, y, bloom, f, scale) {
         return;
     }
 
+    // Petal size grows exponentially — bloom³ makes them explode
+    const growFactor = bloom * bloom * bloom;
+    const screenUnit = Math.max(W, H);
+    const petalLen = (10 * scale) + growFactor * screenUnit * 0.4 * (f.size / 3);
+    const petalWidth = (5 * scale) + growFactor * screenUnit * 0.14 * (f.size / 3);
     const petalCount = 6;
-    const petalLen = (10 + bloom * 16) * scale;
-    const openAngle = bloom * 0.8;
 
     ctx.save();
     ctx.translate(x, y);
@@ -440,7 +449,6 @@ function drawDaffodil(x, y, bloom, f, scale) {
     // Outer petals
     for (let i = 0; i < petalCount; i++) {
         const angle = (i / petalCount) * Math.PI * 2 - Math.PI / 2;
-        const spread = bloom;
 
         ctx.save();
         ctx.rotate(angle);
@@ -454,13 +462,13 @@ function drawDaffodil(x, y, bloom, f, scale) {
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.bezierCurveTo(
-            -5 * scale * spread, -petalLen * 0.3,
-            -6 * scale * spread, -petalLen * 0.7,
+            -petalWidth * bloom, -petalLen * 0.3,
+            -petalWidth * 1.2 * bloom, -petalLen * 0.7,
             -1 * scale, -petalLen
         );
         ctx.bezierCurveTo(
             1 * scale, -petalLen * 1.02,
-            6 * scale * spread, -petalLen * 0.7,
+            petalWidth * 1.2 * bloom, -petalLen * 0.7,
             0, 0
         );
         ctx.fill();
@@ -471,8 +479,7 @@ function drawDaffodil(x, y, bloom, f, scale) {
     // Corona (trumpet) - the distinctive daffodil cup
     if (bloom > 0.3) {
         const coronaBloom = (bloom - 0.3) / 0.7;
-        const coronaR = 6 * scale * coronaBloom;
-        const coronaH = 4 * scale * coronaBloom;
+        const coronaR = (6 * scale + growFactor * screenUnit * 0.06 * (f.size / 3)) * coronaBloom;
 
         // Trumpet shape
         ctx.fillStyle = `hsla(${f.hue[0]+15}, 90%, 55%, ${coronaBloom * 0.9})`;
@@ -482,17 +489,17 @@ function drawDaffodil(x, y, bloom, f, scale) {
 
         // Inner darker ring
         ctx.strokeStyle = `hsla(${f.hue[0]+20}, 85%, 45%, ${coronaBloom * 0.5})`;
-        ctx.lineWidth = 1.5 * scale;
+        ctx.lineWidth = Math.max(1.5, bloom * 4) * scale;
         ctx.beginPath();
         ctx.ellipse(0, -2 * scale, coronaR * 0.7, coronaR * 0.4, 0, 0, Math.PI * 2);
         ctx.stroke();
 
         // Ruffled edge
         ctx.strokeStyle = `hsla(${f.hue[0]+10}, 80%, 50%, ${coronaBloom * 0.6})`;
-        ctx.lineWidth = 1 * scale;
+        ctx.lineWidth = Math.max(1, bloom * 3) * scale;
         ctx.beginPath();
         for (let a = 0; a < Math.PI * 2; a += 0.15) {
-            const rr = coronaR + Math.sin(a * 8) * 1.5 * scale;
+            const rr = coronaR + Math.sin(a * 8) * 3 * scale * coronaBloom;
             const rx = Math.cos(a) * rr;
             const ry = Math.sin(a) * rr * 0.6 - 2 * scale;
             if (a === 0) ctx.moveTo(rx, ry);
@@ -502,9 +509,10 @@ function drawDaffodil(x, y, bloom, f, scale) {
         ctx.stroke();
 
         // Center dot
+        const dotR = (1.5 * scale) + growFactor * screenUnit * 0.015;
         ctx.fillStyle = `rgba(180, 130, 20, ${coronaBloom * 0.7})`;
         ctx.beginPath();
-        ctx.arc(0, -2 * scale, 1.5 * scale, 0, Math.PI * 2);
+        ctx.arc(0, -2 * scale, dotR, 0, Math.PI * 2);
         ctx.fill();
     }
 
