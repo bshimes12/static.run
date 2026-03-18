@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>hello! you are special!</title>
+    <title>hello! you are wonderful!</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -50,9 +50,13 @@
 </head>
 <body>
     <canvas id="c"></canvas>
-    <div class="text">hello! you are special!</div>
+    <div class="text">hello! you are <span id="word">wonderful</span>!</div>
 
     <script>
+        const params = new URLSearchParams(window.location.search);
+        const word = params.get('word') || 'wonderful';
+        document.getElementById('word').textContent = word;
+        document.title = `hello! you are ${word}!`;
         const canvas = document.getElementById('c');
         const ctx = canvas.getContext('2d');
         let particles = [];
