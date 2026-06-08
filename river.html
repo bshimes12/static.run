@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>river</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #010810; }
+canvas { position: fixed; inset: 0; cursor: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+window.addEventListener('resize', () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+// ── Perlin noise ──────────────────────────────────────────────
+const _perm = new Uint8Array(512);
+(function() {
+  const b = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) b[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [b[i],b[j]]=[b[j],b[i]]; }
+  for (let i = 0; i < 512; i++) _perm[i] = b[i&255];
+})();
+const _g2 = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+function fade(t) { return t*t*t*(t*(t*6-15)+10); }
+function lerp(a,b,t) { return a+t*(b-a); }
+function dot2(g,x,y) { return g[0]*x+g[1]*y; }
+function noise(x,y) {
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  x-=Math.floor(x); y-=Math.floor(y);
+  const u=fade(x), v=fade(y);
+  const a=_perm[X]+Y, b=_perm[X+1]+Y;
+  return lerp(
+    lerp(dot2(_g2[_perm[a&255]&7],x,y), dot2(_g2[_perm[b&255]&7],x-1,y),u),
+    lerp(dot2(_g2[_perm[(a+1)&255]&7],x,y-1), dot2(_g2[_perm[(b+1)&255]&7],x-1,y-1),u),
+    v
+  );
+}
+
+// ── Bioluminescent palette ────────────────────────────────────
+const PALETTE = [
+  [0,255,200],   // electric aquamarine
+  [0,220,255],   // electric cyan
+  [80,255,220],  // seafoam
+  [160,100,255], // violet glow
+  [0,255,140],   // phosphorescent green
+  [50,230,200],  // turquoise
+  [0,180,255],   // sky blue
+  [200,255,245], // pale bioluminescent
+  [100,255,180], // mint glow
+  [220,140,255], // soft lavender
+];
+function pick() { return PALETTE[Math.floor(Math.random()*PALETTE.length)]; }
+function rgba([r,g,b],a) { return `rgba(${r},${g},${b},${a.toFixed(3)})`; }
+
+// ── Mouse ─────────────────────────────────────────────────────
+const mouse = { x:-9999, y:0, vx:0, vy:0 };
+const prev = { x:0, y:0 };
+let mouseSpeed = 0, mouseInside = false;
+
+// ── Particles ─────────────────────────────────────────────────
+const particles = [];
+
+class Particle {
+  constructor(x, y, speed) {
+    const spread = 16 + speed * 2;
+    this.x = x + (Math.random()-.5)*spread;
+    this.y = y + (Math.random()-.5)*spread;
+    const n = noise(this.x*.003, this.y*.003);
+    this.vx = -(1.8 + Math.random()*2.5 + speed*.15);
+    this.vy = n * 2 + (Math.random()-.5)*.8;
+    this.color = pick();
+    this.life = 0;
+    this.maxLife = 50 + Math.random()*60;
+    this.size = 1.2 + Math.random()*2.2;
+    this.trail = [];
+    this.sparkle = Math.random() < 0.12;
+  }
+  update(t) {
+    this.trail.push({x:this.x, y:this.y});
+    if (this.trail.length > 10) this.trail.shift();
+    const n = noise(this.x*.0025 + t*.03, this.y*.0025);
+    this.vy += (n - .5)*.08;
+    this.vy *= .97;
+    this.vx += -.01;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life++;
+  }
+  draw() {
+    const t = this.life / this.maxLife;
+    const alpha = t < .15 ? t/.15 : 1 - (t-.15)/.85;
+    if (alpha <= 0) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Trail
+    if (this.trail.length > 1) {
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = rgba(this.color, .7);
+      ctx.strokeStyle = rgba(this.color, alpha * .55);
+      ctx.lineWidth = this.size * .5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i=1; i<this.trail.length; i++) ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      ctx.stroke();
+    }
+
+    // Head glow
+    const glow = this.sparkle ? 20 + Math.sin(this.life*.4)*8 : 12;
+    ctx.shadowBlur = glow;
+    ctx.shadowColor = rgba(this.color, alpha);
+    ctx.fillStyle = rgba(this.color, alpha);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.sparkle ? this.size*1.6 : this.size, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+  dead() { return this.life >= this.maxLife || this.x < -80 || this.y < -80 || this.y > H+80; }
+}
+
+// ── Ripple rings ──────────────────────────────────────────────
+const ripples = [];
+
+class Ripple {
+  constructor(x,y) {
+    this.x = x; this.y = y;
+    // Flash burst at impact
+    this.flash = { age:0, color: pick() };
+    this.rings = Array.from({length:6}, (_,i) => ({
+      delay: i * 7,
+      age: -i*7,
+      color: pick(),
+      maxR: 60 + i*28 + Math.random()*20,
+      lineW: 2.5 - i*.25,
+    }));
+    // Scatter sparkle particles on click
+    for (let i=0; i<18; i++) {
+      const angle = Math.random()*Math.PI*2;
+      const spd = 1.5 + Math.random()*3;
+      particles.push(Object.assign(new Particle(x,y,0), {
+        vx: Math.cos(angle)*spd - 1.2,
+        vy: Math.sin(angle)*spd,
+        size: .8 + Math.random()*1.5,
+        maxLife: 30 + Math.random()*30,
+        sparkle: Math.random()<.3,
+      }));
+    }
+  }
+  update() {
+    this.flash.age++;
+    this.rings.forEach(r => r.age++);
+  }
+  draw() {
+    // Impact flash
+    if (this.flash.age < 12) {
+      const fa = Math.max(0, 1 - this.flash.age/12);
+      const fr = this.flash.age * 5;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowBlur = 40;
+      ctx.shadowColor = rgba(this.flash.color, fa);
+      ctx.fillStyle = rgba(this.flash.color, fa*.6);
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y, fr*1.1, fr, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    this.rings.forEach(r => {
+      if (r.age <= 0) return;
+      const maxAge = 90;
+      const t = Math.min(r.age/maxAge, 1);
+      const eased = 1 - Math.pow(1-t, 3);
+      const radius = r.maxR * eased;
+      const alpha = Math.max(0, 1 - t*1.05);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowBlur = 22 + (1-t)*12;
+      ctx.shadowColor = rgba(r.color, alpha*.9);
+      ctx.strokeStyle = rgba(r.color, alpha);
+      ctx.lineWidth = Math.max(.3, r.lineW * (1-t*.6));
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y, radius*1.18, radius, 0, 0, Math.PI*2);
+      ctx.stroke();
+
+      // Inner shimmer ring
+      if (t < .5) {
+        ctx.shadowBlur = 8;
+        ctx.strokeStyle = rgba(r.color, alpha*.35);
+        ctx.lineWidth = .6;
+        ctx.beginPath();
+        ctx.ellipse(this.x, this.y, radius*.82*1.18, radius*.82, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+  }
+  dead() { return this.rings.every(r => r.age > 90); }
+}
+
+// ── Background water ──────────────────────────────────────────
+let bgTime = 0;
+// Pre-bake a static noise layer
+const noiseCanvas = document.createElement('canvas');
+noiseCanvas.width = 512; noiseCanvas.height = 512;
+const noiseCtx = noiseCanvas.getContext('2d');
+const noiseData = noiseCtx.createImageData(512, 512);
+for (let y=0; y<512; y++) {
+  for (let x=0; x<512; x++) {
+    const v = (noise(x*.018, y*.018) + noise(x*.06, y*.06)*.4 + 1) / 2;
+    const idx = (y*512+x)*4;
+    const col = Math.floor(v * 14);
+    noiseData.data[idx] = col;
+    noiseData.data[idx+1] = col + Math.floor(v*8);
+    noiseData.data[idx+2] = col + Math.floor(v*20);
+    noiseData.data[idx+3] = 255;
+  }
+}
+noiseCtx.putImageData(noiseData, 0, 0);
+
+function drawBackground(t) {
+  ctx.fillStyle = '#010810';
+  ctx.fillRect(0, 0, W, H);
+
+  // Tiled noise texture - drifts right to left
+  const drift = (t * 18) % 512;
+  ctx.save();
+  ctx.globalAlpha = 0.025;
+  ctx.globalCompositeOperation = 'screen';
+  for (let tx = -drift; tx < W; tx += 512) {
+    for (let ty = 0; ty < H; ty += 512) {
+      ctx.drawImage(noiseCanvas, tx, ty);
+    }
+  }
+  ctx.restore();
+
+  // Subtle horizontal shimmer lines
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const lineCount = 6;
+  for (let i=0; i<lineCount; i++) {
+    const baseY = (H / lineCount) * i + H/(lineCount*2);
+    const offset = noise(i*.3, t*.04) * 40;
+    const alpha = 0.012 + noise(i*.7, t*.02)*.008;
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.strokeStyle = `hsl(${188+i*4},100%,70%)`;
+    ctx.lineWidth = .5;
+    ctx.beginPath();
+    let first = true;
+    for (let x=0; x<=W; x+=6) {
+      const y = baseY + offset + noise((x+drift)*0.004, baseY*0.004+t*.03)*22;
+      first ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      first = false;
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Deep vignette
+  const vg = ctx.createRadialGradient(W*.5,H*.5,H*.2,W*.5,H*.5,H*.85);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,3,12,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ── Cursor ────────────────────────────────────────────────────
+function drawCursor(t) {
+  if (!mouseInside || mouse.x < 0) return;
+  const spd = Math.min(mouseSpeed, 20);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // Outer soft halo
+  const grd = ctx.createRadialGradient(mouse.x,mouse.y,0,mouse.x,mouse.y,8+spd);
+  grd.addColorStop(0,'rgba(0,255,200,0.25)');
+  grd.addColorStop(1,'rgba(0,255,200,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(mouse.x,mouse.y,8+spd,0,Math.PI*2);
+  ctx.fill();
+  // Dot
+  ctx.shadowBlur = 14;
+  ctx.shadowColor = 'rgba(0,255,200,0.9)';
+  ctx.fillStyle = `rgba(0,255,200,${.5+spd*.02})`;
+  ctx.beginPath();
+  ctx.arc(mouse.x,mouse.y,2,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Spawn particles ───────────────────────────────────────────
+let spawnActive = false, spawnTimer = 0;
+const FADE_FRAMES = 70;
+
+function spawnParticles() {
+  if (!spawnActive) return;
+  if (particles.length > 700) return;
+  const count = Math.max(1, Math.floor(mouseSpeed * .35));
+  for (let i=0; i<count; i++) particles.push(new Particle(mouse.x, mouse.y, mouseSpeed));
+}
+
+// ── Loop ──────────────────────────────────────────────────────
+let t = 0;
+function loop() {
+  t += 0.008;
+  bgTime = t;
+
+  mouse.vx = mouse.x - prev.x;
+  mouse.vy = mouse.y - prev.y;
+  mouseSpeed = Math.sqrt(mouse.vx*mouse.vx + mouse.vy*mouse.vy);
+  prev.x = mouse.x; prev.y = mouse.y;
+
+  if (mouseSpeed > 0.8) { spawnActive = true; spawnTimer = FADE_FRAMES; }
+  else if (spawnTimer > 0) { spawnTimer--; if (spawnTimer <= 0) spawnActive = false; }
+
+  drawBackground(t);
+  spawnParticles();
+
+  for (let i=particles.length-1; i>=0; i--) {
+    particles[i].update(t);
+    if (particles[i].dead()) particles.splice(i,1);
+    else particles[i].draw();
+  }
+
+  for (let i=ripples.length-1; i>=0; i--) {
+    ripples[i].update();
+    if (ripples[i].dead()) ripples.splice(i,1);
+    else ripples[i].draw();
+  }
+
+  drawCursor(t);
+  requestAnimationFrame(loop);
+}
+
+// ── Events ────────────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mouseenter', e => { mouse.x=e.clientX; mouse.y=e.clientY; prev.x=e.clientX; prev.y=e.clientY; mouseInside=true; });
+canvas.addEventListener('mouseleave', () => { mouseInside=false; mouse.x=-9999; spawnActive=false; spawnTimer=0; });
+canvas.addEventListener('click', e => ripples.push(new Ripple(e.clientX, e.clientY)));
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const tt = e.touches[0];
+  mouse.x=tt.clientX; mouse.y=tt.clientY; mouseInside=true; spawnActive=true; spawnTimer=FADE_FRAMES;
+}, {passive:false});
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const tt = e.touches[0];
+  ripples.push(new Ripple(tt.clientX, tt.clientY));
+  mouse.x=tt.clientX; mouse.y=tt.clientY; mouseInside=true;
+}, {passive:false});
+canvas.addEventListener('touchend', () => { mouseInside=false; mouse.x=-9999; spawnActive=false; });
+
+loop();
+</script>
+</body>
+</html>

@@ -18,8 +18,4 @@ Do the following steps in order:
 
 4. **Push to GitHub**: Run `git push origin master`
 
-5. **Create zip**: Create a zip file called `static-run.zip` in the project root containing everything in the working directory EXCEPT `.git`, `.claude`, `.gitignore`, and `.DS_Store`. Overwrite any existing zip. Use: `cd /Users/bower/code/static.run && zip -r static-run.zip . -x '.git/*' '.claude/*' '.gitignore' '.DS_Store' '*.DS_Store'`
-
-6. **Stage and push the zip**: Stage the zip, commit with message "Update zip", and push to master.
-
-7. **Confirm**: Tell me it's done and show me the list of pages currently in index.html.
+5. **Confirm**: Tell me it's done and show me the list of pages currently in index.html.
